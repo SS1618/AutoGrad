@@ -2,3 +2,5 @@
 #include "vector"
 #include "assert.h"
 #include "stack"
+#include <immintrin.h>
+#include <omp.h>

@@ -24,6 +24,7 @@ public:
     void setidentity(vector<unsigned long>& dims);
     double get(vector<unsigned long>& index);
     void print();
+    ~NDimArray();
 };
 
 class Tensor
@@ -34,10 +35,12 @@ private:
     vector<Tensor*> parents;
     vector<Tensor*> children;
     Operator op;
+    bool keep;
 public:
     Tensor(){
         adjoint = NULL;
         tensor = NULL;
+        keep = false;
     }
     Tensor(vector<unsigned long>& dims, vector<double>& vals);
     void backward();
@@ -50,6 +53,10 @@ public:
     static Tensor* transpose(Tensor* x);
     NDimArray* derivative(Tensor* x, Operator op);
     void print();
+    Operator getOp();
+    bool get_keep();
+    void set_keep(bool k);
+    ~Tensor();
 };
 
 

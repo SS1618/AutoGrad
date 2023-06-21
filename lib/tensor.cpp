@@ -3,6 +3,28 @@
 Tensor::Tensor(vector<unsigned long>& dims, vector<double>& vals){
     tensor = new NDimArray(dims, vals);
     adjoint = NULL;
+    keep = true;
+}
+
+Tensor::~Tensor(){
+    delete tensor;
+    delete adjoint;
+    //vector<Tensor*> parents_store = parents;
+    //vector<Tensor*> children_store = children;
+    parents.clear();
+    children.clear();
+    /*for(int i = 0; i < parents_store.size(); i++){
+        if(parents_store[i] != NULL && !parents_store[i]->get_keep()){
+            delete parents_store[i];
+            parents_store[i] = NULL;
+        }
+    }
+    for(int i = 0; i < children_store.size(); i++){
+        if(children_store[i] != NULL && !children_store[i]->get_keep()){
+            delete children_store[i];
+            children_store[i] = NULL;
+        }
+    }*/
 }
 
 NDimArray* Tensor::getTensor(){
@@ -10,6 +32,9 @@ NDimArray* Tensor::getTensor(){
 }
 NDimArray* Tensor::getAdjoint(){
     return adjoint;
+}
+Operator Tensor::getOp(){
+    return op;
 }
 void Tensor::update(double step_sz){
     for(int i = 0; i < adjoint->values.size(); i+=tensor->values.size()){
@@ -43,6 +68,7 @@ void Tensor::backward(){
 
         //check if adjoints for children have been computed
         bool comp_adj = true;
+
         for(int i = 0; i < n->children.size(); i++){
             if(n->children[i]->adjoint == NULL){
                 comp_adj = false;
@@ -56,7 +82,11 @@ void Tensor::backward(){
             n->adjoint = new NDimArray();
             n->adjoint->setzero(dims);
             for(int i = 0; i < n->children.size(); i++){
-                n->adjoint->add(NDimArray::dot(n->children[i]->adjoint, n->children[i]->derivative(n, n->children[i]->op)));
+                NDimArray* jac = n->children[i]->derivative(n, n->children[i]->op);
+                NDimArray* prod = NDimArray::dot(n->children[i]->adjoint, jac);
+                n->adjoint->add(prod);
+                delete prod;
+                delete jac;
             }
             visited_nodes.push_back(nodes.top());
             nodes.pop();
@@ -74,18 +104,23 @@ void Tensor::backward(){
                 }
             }
         }
-
-        #pragma omp parallel for
-        for(int i = 0; i < visited_nodes.size(); i++){
+    }
+    for(int i = 0; i < visited_nodes.size(); i++){
+        if(visited_nodes[i] != NULL){
             visited_nodes[i]->children.clear();
+            if(!visited_nodes[i]->get_keep()){
+                delete visited_nodes[i];
+                visited_nodes[i] = NULL;
+            }
         }
     }
 }
 
 NDimArray* Tensor::derivative(Tensor* x, Operator op){
-    NDimArray* jac = new NDimArray();
+    NDimArray* jac = NULL;
     if(op == ADD){
         vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
+        jac = new NDimArray();
         jac->setidentity(dims);
     }
     else if(op == DOT){
@@ -111,10 +146,11 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
         }
         else{
             vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
+            jac = new NDimArray();
             jac->setzero(dims);
-
+            int incr = jac->dimension[1];
             #pragma omp parallel for
-            for(int i = 0; i < jac->values.size(); i+= jac->dimension[1]){
+            for(int i = 0; i < jac->values.size(); i+= incr){
                 for(int j = 0; j < other->getTensor()->values.size(); j++){
                     jac->values[i + ((i / jac->dimension[1]) * other->getTensor()->values.size()) + j] = other->getTensor()->values[j];
                 }
@@ -122,12 +158,12 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
         }
     }
     else if(op == NDMD_DOT){
+        jac = new NDimArray();
         if(parents[0] == x){
             Tensor* other = parents[1];
             vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
             jac->setzero(dims);
 
-            #pragma omp parallel for
             for(int i = 0; i < jac->values.size(); i+= jac->dimension[1]){
                 for(int j = 0; j < x->getTensor()->dimension.back(); j++){
                     int jac_row = i / jac->dimension[1];
@@ -140,7 +176,6 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
             vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
             jac->setzero(dims);
 
-            #pragma omp parallel for
             for(int i = 0; i < jac->values.size(); i+= jac->dimension[1]){
                 for(int j = 0; j < x->getTensor()->dimension.back(); j++){
                     int jac_row = i / jac->dimension[1];
@@ -165,9 +200,9 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
         }
         else{
             vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
+            jac = new NDimArray();
             jac->setzero(dims);
 
-            #pragma omp parallel for
             for(int i = 0; i < getTensor()->values.size(); i++){
                 jac->values[i + (i * getTensor()->values.size())] = parents[0]->getTensor()->values[0];
             }
@@ -175,9 +210,9 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
     }
     else if(op == TRANS){
         vector<unsigned long> dims{getTensor()->values.size(), x->getTensor()->values.size()};
+        jac = new NDimArray();
         jac->setzero(dims);
 
-        #pragma omp parallel for
         for(int i = 0; i < getTensor()->values.size(); i++){
             int r = i / getTensor()->dimension.back();
             int c = i % getTensor()->dimension.back();
@@ -189,6 +224,8 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
 
 Tensor* Tensor::add(Tensor* x, Tensor* y){
     Tensor* t = new Tensor();
+    delete x->adjoint;
+    delete y->adjoint;
     x->adjoint = NULL;
     y->adjoint = NULL;
     t->tensor = NDimArray::add(x->getTensor(), y->getTensor());
@@ -202,6 +239,8 @@ Tensor* Tensor::add(Tensor* x, Tensor* y){
 
 Tensor* Tensor::dot(Tensor* x, Tensor* y){
     Tensor* t = new Tensor();
+    delete x->adjoint;
+    delete y->adjoint;
     x->adjoint = NULL;
     y->adjoint = NULL;
     t->tensor = NDimArray::dot(x->getTensor(), y->getTensor());
@@ -226,6 +265,8 @@ Tensor* Tensor::dot(Tensor* x, Tensor* y){
 
 Tensor* Tensor::mult(Tensor* x, Tensor* y){
     Tensor* t = new Tensor();
+    delete x->adjoint;
+    delete y->adjoint;
     x->adjoint = NULL;
     y->adjoint = NULL;
     t->tensor = NDimArray::mult(x->getTensor(), y->getTensor());
@@ -239,6 +280,7 @@ Tensor* Tensor::mult(Tensor* x, Tensor* y){
 
 Tensor* Tensor::transpose(Tensor* x){
     Tensor* t = new Tensor();
+    delete x->adjoint;
     x->adjoint = NULL;
     t->tensor = NDimArray::transpose(x->getTensor());
     t->parents.push_back(x);
@@ -253,6 +295,9 @@ void Tensor::print(){
     cout << ")" << endl;
 }
 
+bool Tensor::get_keep(){return keep;}
+void Tensor::set_keep(bool k){keep = k;}
+
 NDimArray::NDimArray(vector<unsigned long>& dims, vector<double>& vals){
     for(int i = 0; i < dims.size(); i++){
         dimension.push_back(dims[i]);
@@ -266,10 +311,14 @@ NDimArray::NDimArray(double val){
     values.push_back(val);
 }
 
+NDimArray::~NDimArray(){
+    values.clear();
+    dimension.clear();
+}
+
 NDimArray* NDimArray::add(NDimArray* x, NDimArray* y){
     assert(x->dimension.size() == y->dimension.size());
 
-    #pragma omp parallel for
     for(int i = 0; i < x->dimension.size(); i++){
         assert(x->dimension[i] == y->dimension[i]);
     }
@@ -284,11 +333,11 @@ NDimArray* NDimArray::add(NDimArray* x, NDimArray* y){
 void NDimArray::add(NDimArray* x){
     assert(x->dimension.size() == dimension.size());
     
-    #pragma omp parallel for
     for(int i = 0; i < x->dimension.size(); i++){
         assert(x->dimension[i] == dimension[i]);
     }
     assert(x->values.size() == values.size());
+
     for(int i = 0; i < values.size(); i++){
         values[i] += x->values[i];
     }
@@ -307,13 +356,23 @@ NDimArray* NDimArray::dot(NDimArray* x, NDimArray* y){
     else if(y->dimension.size() == 1){
         assert(y->dimension[0] == x->dimension.back());
         vector<unsigned long> dims;
-        vector<double> vals;
+        vector<double> vals(x->values.size() / y->dimension[0], 0.0);
         for(int i = 0; i < x->values.size(); i+=y->dimension[0]){
-            double sum = 0.0;
-            for(int j = 0; j < y->dimension[0]; j++){
+            __m256d sum_vec = _mm256_setzero_pd();
+            for(int j = 0; j < (y->dimension[0] / 4) * 4; j+=4){
+                __m256d a_vec = _mm256_loadu_pd(&(x->values[i + j]));
+                __m256d b_vec = _mm256_loadu_pd(&(y->values[j]));
+                sum_vec = _mm256_add_pd(_mm256_mul_pd(a_vec, b_vec), sum_vec);
+                //sum += (x->values[i + j] * y->values[j]);
+            }
+            double store_prods[4];
+            _mm256_storeu_pd(store_prods, sum_vec);
+            double sum = store_prods[0] + store_prods[1] + store_prods[2] + store_prods[3];
+            for(int j = (y->dimension[0] / 4) * 4; j < y->dimension[0]; j++){
                 sum += (x->values[i + j] * y->values[j]);
             }
-            vals.push_back(sum);
+            //vals.push_back(sum);
+            vals[i / y->dimension[0]] = sum;
         }
         for(int i = 0; i < x->dimension.size() - 1; i++){
             dims.push_back(x->dimension[i]);
@@ -382,9 +441,7 @@ void NDimArray::setzero(vector<unsigned long>& dims){
         values.push_back(0.0);
     }
     else{
-        for(int i = 0; i < var_count; i++){
-            values.push_back(0.0);
-        }
+        values = vector<double>(var_count, 0.0);
     }
 }
 
@@ -400,18 +457,15 @@ void NDimArray::setidentity(vector<unsigned long>& dims){
         values.push_back(1.0);
     }
     else if(dimension.size() == 1){
-        for(int i = 0; i < values.size(); i++){
-            values.push_back(1.0);
-        }
+        values = vector<double>(dimension[0], 1.0);
     }
     else{
-        for(int i = 0; i < var_count; i++){
-            if(i / dimension.back() == i % dimension.back()){
-                values.push_back(1.0);
-            }
-            else{
-                values.push_back(0.0);
-            }
+        assert(var_count / dimension.back() == dimension.back());
+        values = vector<double>(var_count, 0.0);
+        int incr = dimension.back();
+        #pragma omp parallel for
+        for(int i = 0; i < var_count; i+= incr){
+            values[i + (i / dimension.back())] = 1.0;
         }
     }
 }
