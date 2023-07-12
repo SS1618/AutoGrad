@@ -7,20 +7,20 @@ using namespace std;
 using namespace std::chrono;
 
 int main(){
-    vector<unsigned long> dims{5, 2};
-    vector<double> vals;
+    unsigned long dims[2] = {5, 2};
+    float vals[10];
     for(int i = 0; i < 10; i++){
-        vals.push_back(i);
+        vals[i] = i;
     }
 
-    vector<unsigned long>dims2{2, 5};
-    vector<double>vals2;
+    unsigned long dims2[2] = {2, 5};
+    float vals2[10];
     for(int i = 0; i < 10; i++){
-        vals2.push_back(i);
+        vals2[i] = i;
     }
+    NDimArray* arr = new NDimArray(dims, vals, 2);
+    NDimArray* arr2 = new NDimArray(dims2, vals2, 2);
 
-    NDimArray* arr = new NDimArray(dims, vals);
-    NDimArray* arr2 = new NDimArray(dims2, vals2);
 
     high_resolution_clock::time_point t1 = high_resolution_clock::now();
     NDimArray* arrp = NDimArray::dot(arr2, arr);

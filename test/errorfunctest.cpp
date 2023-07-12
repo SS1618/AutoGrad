@@ -7,29 +7,27 @@ using namespace std;
 using namespace std::chrono;
 
 int main(){
-    vector<unsigned long> dims_A{1000, 1000};
-    vector<double> vals;
+    unsigned long dims_A[2] = {1000, 1000};
+    float vals[dims_A[0] * dims_A[1]];
     for(int i = 0; i < dims_A[0] * dims_A[1]; i++){
-        vals.push_back(rand() / double(RAND_MAX));
+        vals[i] = rand() / double(RAND_MAX);
     }
-    Tensor* A = new Tensor(dims_A, vals);
-    vector<unsigned long> dims_y{dims_A[0]};
-    vals.clear();
-    for(int i = 0; i < dims_A[0]; i++){
-        vals.push_back(0.0);
-    }
-    Tensor* y = new Tensor(dims_y, vals);
+    Tensor* A = new Tensor(dims_A, vals, 2);
 
-    vals.clear();
+    unsigned long dims_y[1] = {dims_A[0]};
+    float vals2[dims_A[0]];
     for(int i = 0; i < dims_A[0]; i++){
-        vals.push_back(rand() / double(RAND_MAX));
+        vals2[i] = 0.0;
     }
-    Tensor* x = new Tensor(dims_y, vals);
+    Tensor* y = new Tensor(dims_y, vals2, 1);
 
-    vals.clear();
-    vals.push_back(-1);
-    dims_y.clear();
-    Tensor* neg = new Tensor(dims_y, vals);
+    for(int i = 0; i < dims_A[0]; i++){
+        vals2[i] = rand() / double(RAND_MAX);
+    }
+    Tensor* x = new Tensor(dims_y, vals2, 1);
+
+    Tensor* neg = new Tensor(-1.0);
+
     double avg_update = 0.0;
     double avg_back = 0.0;
     for(int j = 0; j < 5; j++){

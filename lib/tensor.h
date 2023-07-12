@@ -10,19 +10,21 @@ class NDimArray
 private:
     void print_helper(unsigned long level, unsigned long index, unsigned long sz);
 public:
-    vector<double> values;
-    vector<unsigned long> dimension;
+    float* values;
+    unsigned long* dimension;
+    unsigned long values_size;
+    unsigned long dimension_size;
     NDimArray(){}
-    NDimArray(vector<unsigned long>& dims, vector<double>& vals);
-    NDimArray(double val);
+    NDimArray(unsigned long* dim, float* vals, unsigned long dim_sz);
+    NDimArray(float val);
     static NDimArray* add(NDimArray* x, NDimArray* y);
     void add(NDimArray* x);
     static NDimArray* dot(NDimArray* x, NDimArray* y);
     static NDimArray* mult(NDimArray* x, NDimArray* y);
     static NDimArray* transpose(NDimArray* x);
-    void setzero(vector<unsigned long>& dims);
-    void setidentity(vector<unsigned long>& dims);
-    double get(vector<unsigned long>& index);
+    void setzero(unsigned long* dims, unsigned long dim_sz);
+    void setidentity(unsigned long* dims, unsigned long dim_sz);
+    double get(unsigned long* index);
     void print();
     ~NDimArray();
 };
@@ -42,7 +44,8 @@ public:
         tensor = NULL;
         keep = false;
     }
-    Tensor(vector<unsigned long>& dims, vector<double>& vals);
+    Tensor(unsigned long* dim, float* vals, unsigned long dim_sz);
+    Tensor(float val);
     void backward();
     NDimArray* getTensor();
     NDimArray* getAdjoint();
