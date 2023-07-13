@@ -20,6 +20,10 @@ public:
     static NDimArray* add(NDimArray* x, NDimArray* y);
     void add(NDimArray* x);
     static NDimArray* dot(NDimArray* x, NDimArray* y);
+    static NDimArray* dot1d1d(NDimArray* x, NDimArray* y);
+    static NDimArray* dotNd1d(NDimArray* x, NDimArray* y);
+    static NDimArray* dotNdMd(NDimArray* x, NDimArray* y);
+    static NDimArray* dotScalar(NDimArray* x, NDimArray* y);
     static NDimArray* mult(NDimArray* x, NDimArray* y);
     static NDimArray* transpose(NDimArray* x);
     void setzero(unsigned long* dims, unsigned long dim_sz);

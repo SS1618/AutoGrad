@@ -240,20 +240,24 @@ Tensor* Tensor::dot(Tensor* x, Tensor* y){
     delete y->adjoint;
     x->adjoint = NULL;
     y->adjoint = NULL;
-    t->tensor = NDimArray::dot(x->getTensor(), y->getTensor());
+    //t->tensor = NDimArray::dot(x->getTensor(), y->getTensor());
     t->parents.push_back(x);
     t->parents.push_back(y);
     if(x->getTensor()->dimension_size == 1 and y->getTensor()->dimension_size == 1){
         t->op = DOT;
+        t->tensor = NDimArray::dot1d1d(x->getTensor(), y->getTensor());
     }
     else if(y->getTensor()->dimension_size == 1){
         t->op = ND1D_DOT;
+        t->tensor = NDimArray::dotNd1d(x->getTensor(), y->getTensor());
     }
     else if(x->getTensor()->dimension_size == 0 and y->getTensor()->dimension_size == 0){
         t->op = SCALARMULT;
+        t->tensor = NDimArray::dotScalar(x->getTensor(), y->getTensor());
     }
     else{
         t->op = NDMD_DOT;
+        t->tensor = NDimArray::dotNdMd(x->getTensor(), y->getTensor());
     }
     x->children.push_back(t);
     y->children.push_back(t);
@@ -350,65 +354,78 @@ void NDimArray::add(NDimArray* x){
 
 NDimArray* NDimArray::dot(NDimArray* x, NDimArray* y){
     if(x->dimension_size == 1 && y->dimension_size == 1){
-        assert(x->dimension[0] == y->dimension[0]);
-        unsigned long dims[1] = {1};
-        float vals[1] = {0.0};
-        for(int i = 0; i < x->values_size; i++){
-            vals[0] += x->values[i] * y->values[i];
-        }
-        return new NDimArray(dims, vals, 1);
+        return dot1d1d(x, y);
     }
     else if(y->dimension_size == 1){
-        assert(y->dimension[0] == x->dimension[x->dimension_size - 1]);
-        unsigned long dims[x->dimension_size - 1];
-        float vals[x->values_size / y->dimension[0]];
-        for(int i = 0; i < x->values_size / y->dimension[0]; i++){
-            vals[i] = 0.0f;
-        }
-        for(int i = 0; i < x->values_size; i+=y->dimension[0]){
-            __m256 sum_vec = _mm256_setzero_ps();
-            for(int j = 0; j < (y->dimension[0] / 4) * 4; j+=4){
-                __m256 a_vec = _mm256_loadu_ps(x->values + i + j);
-                __m256 b_vec = _mm256_loadu_ps(y->values + j);
-                sum_vec = _mm256_add_ps(_mm256_mul_ps(a_vec, b_vec), sum_vec);
-                //sum += (x->values[i + j] * y->values[j]);
-            }
-            float store_prods[4];
-            _mm256_storeu_ps(store_prods, sum_vec);
-            float sum = store_prods[0] + store_prods[1] + store_prods[2] + store_prods[3];
-            for(int j = (y->dimension[0] / 4) * 4; j < y->dimension[0]; j++){
-                sum += (x->values[i + j] * y->values[j]);
-            }
-            //vals.push_back(sum);
-            vals[i / y->dimension[0]] = sum;
-        }
-        for(int i = 0; i < x->dimension_size - 1; i++){
-            dims[i] = x->dimension[i];
-        }
-        return new NDimArray(dims, vals, x->dimension_size - 1);
+        return dotNd1d(x, y);
     }
     else if(x->dimension_size == 0 && y->dimension_size == 0){
-        return new NDimArray(x->values[0] * y->values[0]);
+        return dotScalar(x, y);
     }
     else{
-        assert(x->dimension[x->dimension_size - 1] == y->dimension[y->dimension_size - 2]);
-        unsigned long dims[x->dimension_size];
-        float vals[(x->values_size / x->dimension[x->dimension_size - 1]) * y->dimension[y->dimension_size - 1]];
-        for(int i = 0; i < x->values_size; i+=x->dimension[x->dimension_size - 1]){
-            for(int j = 0; j < y->dimension[y->dimension_size - 1]; j++){
-                double sum = 0.0;
-                for(int k = 0; k < x->dimension[x->dimension_size - 1]; k++){
-                    sum += x->values[i + k] * y->values[j + (k * y->dimension[y->dimension_size - 1])];
-                }
-                vals[((i / x->dimension[x->dimension_size - 1]) * y->dimension[y->dimension_size - 1]) + j] = sum;
-            }
-        }
-        for(int i = 0; i < x->dimension_size - 1; i++){
-            dims[i] = x->dimension[i];
-        }
-        dims[x->dimension_size - 1] = y->dimension[y->dimension_size - 1];
-        return new NDimArray(dims, vals, x->dimension_size);
+        return dotNdMd(x, y);
     }
+}
+
+NDimArray* NDimArray::dot1d1d(NDimArray* x, NDimArray* y){
+    assert(x->dimension[0] == y->dimension[0]);
+    unsigned long dims[1] = {1};
+    float vals[1] = {0.0};
+    for(int i = 0; i < x->values_size; i++){
+        vals[0] += x->values[i] * y->values[i];
+    }
+    return new NDimArray(dims, vals, 1);
+}
+NDimArray* NDimArray::dotNd1d(NDimArray* x, NDimArray* y){
+    assert(y->dimension[0] == x->dimension[x->dimension_size - 1]);
+    unsigned long dims[x->dimension_size - 1];
+    float vals[x->values_size / y->dimension[0]];
+    for(int i = 0; i < x->values_size / y->dimension[0]; i++){
+        vals[i] = 0.0f;
+    }
+    for(int i = 0; i < x->values_size; i+=y->dimension[0]){
+        __m256 sum_vec = _mm256_setzero_ps();
+        for(int j = 0; j < (y->dimension[0] / 4) * 4; j+=4){
+            __m256 a_vec = _mm256_loadu_ps(x->values + i + j);
+            __m256 b_vec = _mm256_loadu_ps(y->values + j);
+            sum_vec = _mm256_add_ps(_mm256_mul_ps(a_vec, b_vec), sum_vec);
+            //sum += (x->values[i + j] * y->values[j]);
+        }
+        float store_prods[4];
+        _mm256_storeu_ps(store_prods, sum_vec);
+        float sum = store_prods[0] + store_prods[1] + store_prods[2] + store_prods[3];
+        for(int j = (y->dimension[0] / 4) * 4; j < y->dimension[0]; j++){
+            sum += (x->values[i + j] * y->values[j]);
+        }
+        //vals.push_back(sum);
+        vals[i / y->dimension[0]] = sum;
+    }
+    for(int i = 0; i < x->dimension_size - 1; i++){
+        dims[i] = x->dimension[i];
+    }
+    return new NDimArray(dims, vals, x->dimension_size - 1);
+}
+NDimArray* NDimArray::dotNdMd(NDimArray* x, NDimArray* y){
+    assert(x->dimension[x->dimension_size - 1] == y->dimension[y->dimension_size - 2]);
+    unsigned long dims[x->dimension_size];
+    float vals[(x->values_size / x->dimension[x->dimension_size - 1]) * y->dimension[y->dimension_size - 1]];
+    for(int i = 0; i < x->values_size; i+=x->dimension[x->dimension_size - 1]){
+        for(int j = 0; j < y->dimension[y->dimension_size - 1]; j++){
+            double sum = 0.0;
+            for(int k = 0; k < x->dimension[x->dimension_size - 1]; k++){
+                sum += x->values[i + k] * y->values[j + (k * y->dimension[y->dimension_size - 1])];
+            }
+            vals[((i / x->dimension[x->dimension_size - 1]) * y->dimension[y->dimension_size - 1]) + j] = sum;
+        }
+    }
+    for(int i = 0; i < x->dimension_size - 1; i++){
+        dims[i] = x->dimension[i];
+    }
+    dims[x->dimension_size - 1] = y->dimension[y->dimension_size - 1];
+    return new NDimArray(dims, vals, x->dimension_size);
+}
+NDimArray* NDimArray::dotScalar(NDimArray* x, NDimArray* y){
+    return new NDimArray(x->values[0] * y->values[0]);
 }
 
 NDimArray* NDimArray::mult(NDimArray* x, NDimArray* y){
