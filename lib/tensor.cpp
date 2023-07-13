@@ -15,22 +15,8 @@ Tensor::Tensor(float val){
 Tensor::~Tensor(){
     delete tensor;
     delete adjoint;
-    //vector<Tensor*> parents_store = parents;
-    //vector<Tensor*> children_store = children;
     parents.clear();
     children.clear();
-    /*for(int i = 0; i < parents_store.size(); i++){
-        if(parents_store[i] != NULL && !parents_store[i]->get_keep()){
-            delete parents_store[i];
-            parents_store[i] = NULL;
-        }
-    }
-    for(int i = 0; i < children_store.size(); i++){
-        if(children_store[i] != NULL && !children_store[i]->get_keep()){
-            delete children_store[i];
-            children_store[i] = NULL;
-        }
-    }*/
 }
 
 NDimArray* Tensor::getTensor(){
@@ -140,6 +126,7 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
             other = parents[1];
         }
         float vals[other->getTensor()->values_size];
+        //#pragma omp parallel for
         for(int i = 0; i < other->getTensor()->values_size; i++){
             vals[i] = other->getTensor()->values[i];
         }
@@ -159,7 +146,7 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
             jac = new NDimArray();
             jac->setzero(dims, 2);
             int incr = jac->dimension[1];
-            #pragma omp parallel for
+            //#pragma omp parallel for
             for(int i = 0; i < jac->values_size; i+= incr){
                 for(int j = 0; j < other->getTensor()->values_size; j++){
                     jac->values[i + ((i / jac->dimension[1]) * other->getTensor()->values_size) + j] = other->getTensor()->values[j];

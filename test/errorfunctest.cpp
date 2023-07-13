@@ -30,7 +30,7 @@ int main(){
 
     double avg_update = 0.0;
     double avg_back = 0.0;
-    for(int j = 0; j < 5; j++){
+    for(int j = 0; j < 10; j++){
         Tensor* v = Tensor::dot(A, x);
         Tensor* nv = Tensor::mult(neg, v);
         Tensor* z = Tensor::add(y, nv);
@@ -53,6 +53,6 @@ int main(){
     delete x;
     delete y;
     delete neg;
-    cout << "Average Update Time: " << avg_update / 5.0 << endl;
-    cout << "Average Backward Time: " << avg_back / 5.0 << endl;
+    cout << "Average Update Time: " << avg_update / 10.0 << endl;
+    cout << "Average Backward Time: " << avg_back / 10.0 << endl;
 }
