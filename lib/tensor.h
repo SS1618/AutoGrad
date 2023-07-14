@@ -3,7 +3,7 @@
 #include "includes.h"
 using namespace std;
 
-enum Operator {ADD, DOT, ND1D_DOT, NDMD_DOT, SCALARMULT, MULT, TRANS};
+enum Operator {ADD, DOT, ND1D_DOT, NDMD_DOT, SCALARMULT, MULT, TRANS, RELU, SIGMOID};
 
 class NDimArray
 {
@@ -26,6 +26,8 @@ public:
     static NDimArray* dotScalar(NDimArray* x, NDimArray* y);
     static NDimArray* mult(NDimArray* x, NDimArray* y);
     static NDimArray* transpose(NDimArray* x);
+    static NDimArray* ReLU(NDimArray* x);
+    static NDimArray* Sigmoid(NDimArray* x);
     void setzero(unsigned long* dims, unsigned long dim_sz);
     void setidentity(unsigned long* dims, unsigned long dim_sz);
     double get(unsigned long* index);
@@ -58,7 +60,12 @@ public:
     static Tensor* dot(Tensor* x, Tensor* y);
     static Tensor* mult(Tensor* x, Tensor* y);
     static Tensor* transpose(Tensor* x);
+    static Tensor* ReLU(Tensor* x);
+    static Tensor* Sigmoid(Tensor* x);
     NDimArray* derivative(Tensor* x, Operator op);
+    NDimArray* derivative_add(Tensor* x);
+    NDimArray* derivative_dot1d1d(Tensor* x);
+    NDimArray* derivative_dotNd1d(Tensor* x);
     void print();
     Operator getOp();
     bool get_keep();
@@ -66,5 +73,24 @@ public:
     ~Tensor();
 };
 
+class NN
+{
+    public:
+        virtual Tensor* feedforward(Tensor* x);
+}
+class Linear : public NN
+{
+private:
+    Tensor* weight;
+    Tensor* bias;
+public:
+    Linear(){
+        weight = NULL;
+        bias = NULL;
+    }
+    Linear(unsigned long in_features, unsigned long out_features);
+    Tensor* feedforward(Tensor* x);
+    ~Linear();
+}
 
 #endif

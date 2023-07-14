@@ -1,5 +1,29 @@
 #include "tensor.h"
 
+Linear::Linear(unsigned long in_features, unsigned long out_features){
+    unsigned long dimsW[2] = {out_features, in_features};
+    float valsW[in_features * out_features];
+    for(int i = 0; i < in_features * out_features; i++){
+        valsW[i] = rand() / float(RAND_MAX);
+    }
+    weight = Tensor(dimsW, valsW, 2);
+    unsigned long dimsB[1] = {out_features};
+    float valsB[out_features];
+    for(int i = 0; i < out_features; i++){
+        valsB[i] = rand() / float(RAND_MAX);
+    }
+    bias = Tensor(dimsB, valsB, 1);
+}
+
+Tensor* Linear::feedforward(Tensor* x){
+    return Tensor::add(Tensor::dot(weight, x), bias);
+}
+
+Linear::~Linear(){
+    delete weight;
+    delete bias;
+}
+
 Tensor::Tensor(unsigned long* dim, float* vals, unsigned long dim_sz){
     tensor = new NDimArray(dim, vals, dim_sz);
     adjoint = NULL;
@@ -113,108 +137,140 @@ void Tensor::backward(){
 }
 
 NDimArray* Tensor::derivative(Tensor* x, Operator op){
-    NDimArray* jac = NULL;
     if(op == ADD){
-        unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-        jac = new NDimArray();
-        jac->setidentity(dims, 2);
+        return derivative_add(x);
     }
     else if(op == DOT){
-        unsigned long dims[2] = {1, x->getTensor()->values_size};
-        Tensor* other = parents[0];
-        if(parents[0] == x){
-            other = parents[1];
-        }
-        float vals[other->getTensor()->values_size];
-        //#pragma omp parallel for
-        for(int i = 0; i < other->getTensor()->values_size; i++){
-            vals[i] = other->getTensor()->values[i];
-        }
-        jac = new NDimArray(dims, vals, 2);
+        return derivative_dot1d1d(x);
     }
     else if(op == ND1D_DOT){
-        Tensor* other = parents[0];
-        if(parents[0] == x){
-            other = parents[1];
-        }
-        if(x->getTensor()->dimension_size == 1){
-            unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-            jac = new NDimArray(dims, other->getTensor()->values, 2);
-        }
-        else{
-            unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-            jac = new NDimArray();
-            jac->setzero(dims, 2);
-            int incr = jac->dimension[1];
-            //#pragma omp parallel for
-            for(int i = 0; i < jac->values_size; i+= incr){
-                for(int j = 0; j < other->getTensor()->values_size; j++){
-                    jac->values[i + ((i / jac->dimension[1]) * other->getTensor()->values_size) + j] = other->getTensor()->values[j];
-                }
-            }
-        }
+        return derivative_dotNd1d(x);
     }
     else if(op == NDMD_DOT){
-        jac = new NDimArray();
-        if(parents[0] == x){
-            Tensor* other = parents[1];
-            unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-            jac->setzero(dims, 2);
-
-            for(int i = 0; i < jac->values_size; i+= jac->dimension[1]){
-                for(int j = 0; j < x->getTensor()->dimension[x->getTensor()->dimension_size - 1]; j++){
-                    int jac_row = i / jac->dimension[1];
-                    jac->values[i + ((jac_row / other->getTensor()->dimension[other->getTensor()->dimension_size - 1]) * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + j] = other->getTensor()->values[(other->getTensor()->dimension[other->getTensor()->dimension_size - 1] * j) + (jac_row % other->getTensor()->dimension[other->getTensor()->dimension_size - 1])];
-                }
-            }
-        }
-        else{
-            Tensor* other = parents[0];
-            unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-            jac->setzero(dims, 2);
-
-            for(int i = 0; i < jac->values_size; i+= jac->dimension[1]){
-                for(int j = 0; j < x->getTensor()->dimension[x->getTensor()->dimension_size - 1]; j++){
-                    int jac_row = i / jac->dimension[1];
-                    jac->values[(j * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + (jac_row % x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + i] = other->getTensor()->values[((jac_row / x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) * other->getTensor()->dimension[other->getTensor()->dimension_size - 1]) + j];
-                }
-            }
-        }
+        return derivative_dotNdMd(x);
     }
     else if (op == SCALARMULT){
-        Tensor* other = parents[0];
-        if(parents[0] == x){
-            other = parents[1];
-        }
-        unsigned long dims[2] = {1, 1};
-        float vals[1] = {other->getTensor()->values[0]};
-        jac = new NDimArray(dims, vals, 2);
+        return derivative_scalarmult(x);
     }
     else if(op == MULT){
-        if(x->getTensor()->dimension_size == 0){
-            unsigned long dims[2] = {getTensor()->values_size, 1};
-            jac = new NDimArray(dims, parents[1]->getTensor()->values, 2);
-        }
-        else{
-            unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-            jac = new NDimArray();
-            jac->setzero(dims, 2);
+        return derivative_mult(x);
+    }
+    else if(op == TRANS){
+        return derivative_transpose(x);
+    }
+    return NULL;
+}
 
-            for(int i = 0; i < getTensor()->values_size; i++){
-                jac->values[i + (i * getTensor()->values_size)] = parents[0]->getTensor()->values[0];
+NDimArray* Tensor::derivative_add(Tensor* x){
+    unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+    NDimArray* jac = new NDimArray();
+    jac->setidentity(dims, 2);
+    return jac;
+}
+
+NDimArray* Tensor::derivative_dot1d1d(Tensor* x){
+    unsigned long dims[2] = {1, x->getTensor()->values_size};
+    Tensor* other = parents[0];
+    if(parents[0] == x){
+        other = parents[1];
+    }
+    float vals[other->getTensor()->values_size];
+    //#pragma omp parallel for
+    for(int i = 0; i < other->getTensor()->values_size; i++){
+        vals[i] = other->getTensor()->values[i];
+    }
+    return new NDimArray(dims, vals, 2);
+}
+
+NDimArray* Tensor::derivative_dotNd1d(Tensor* x){
+    Tensor* other = parents[0];
+    if(parents[0] == x){
+        other = parents[1];
+    }
+    if(x->getTensor()->dimension_size == 1){
+        unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+        return new NDimArray(dims, other->getTensor()->values, 2);
+    }
+    else{
+        unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+        NDimArray* jac = new NDimArray();
+        jac->setzero(dims, 2);
+        int incr = jac->dimension[1];
+        //#pragma omp parallel for
+        for(int i = 0; i < jac->values_size; i+= incr){
+            for(int j = 0; j < other->getTensor()->values_size; j++){
+                jac->values[i + ((i / jac->dimension[1]) * other->getTensor()->values_size) + j] = other->getTensor()->values[j];
+            }
+        }
+        return jac;
+    }
+    return NULL;
+}
+
+NDimArray* Tensor::derivative_dotNdMd(Tensor* x){
+    NDimArray* jac = new NDimArray();
+    if(parents[0] == x){
+        Tensor* other = parents[1];
+        unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+        jac->setzero(dims, 2);
+        for(int i = 0; i < jac->values_size; i+= jac->dimension[1]){
+            for(int j = 0; j < x->getTensor()->dimension[x->getTensor()->dimension_size - 1]; j++){
+                int jac_row = i / jac->dimension[1];
+                jac->values[i + ((jac_row / other->getTensor()->dimension[other->getTensor()->dimension_size - 1]) * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + j] = other->getTensor()->values[(other->getTensor()->dimension[other->getTensor()->dimension_size - 1] * j) + (jac_row % other->getTensor()->dimension[other->getTensor()->dimension_size - 1])];
             }
         }
     }
-    else if(op == TRANS){
+    else{
+        Tensor* other = parents[0];
+        unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+        jac->setzero(dims, 2);
+        for(int i = 0; i < jac->values_size; i+= jac->dimension[1]){
+            for(int j = 0; j < x->getTensor()->dimension[x->getTensor()->dimension_size - 1]; j++){
+                int jac_row = i / jac->dimension[1];
+                jac->values[(j * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + (jac_row % x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + i] = other->getTensor()->values[((jac_row / x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) * other->getTensor()->dimension[other->getTensor()->dimension_size - 1]) + j];
+            }
+        }
+    }
+    return jac;
+}
+
+NDimArray* Tensor::derivative_scalarmult(Tensor* x){
+    Tensor* other = parents[0];
+    if(parents[0] == x){
+        other = parents[1];
+    }
+    unsigned long dims[2] = {1, 1};
+    float vals[1] = {other->getTensor()->values[0]};
+    return new NDimArray(dims, vals, 2);
+}
+
+NDimArray* Tensor::derivative_mult(Tensor* x){
+    if(x->getTensor()->dimension_size == 0){
+        unsigned long dims[2] = {getTensor()->values_size, 1};
+        return new NDimArray(dims, parents[1]->getTensor()->values, 2);
+    }
+    else{
         unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
         jac = new NDimArray();
         jac->setzero(dims, 2);
 
         for(int i = 0; i < getTensor()->values_size; i++){
-            int r = i / getTensor()->dimension[getTensor()->dimension_size - 1];
-            int c = i % getTensor()->dimension[getTensor()->dimension_size - 1];
-            jac->values[(i * x->getTensor()->values_size) + (c * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + r] = 1.0;
+            jac->values[i + (i * getTensor()->values_size)] = parents[0]->getTensor()->values[0];
         }
+        return jac;
+    }
+    return NULL;
+}
+
+NDimArray* Tensor::derivative_transpose(Tensor* x){
+    unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
+    jac = new NDimArray();
+    jac->setzero(dims, 2);
+
+    for(int i = 0; i < getTensor()->values_size; i++){
+        int r = i / getTensor()->dimension[getTensor()->dimension_size - 1];
+        int c = i % getTensor()->dimension[getTensor()->dimension_size - 1];
+        jac->values[(i * x->getTensor()->values_size) + (c * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + r] = 1.0;
     }
     return jac;
 }
@@ -286,6 +342,27 @@ Tensor* Tensor::transpose(Tensor* x){
     t->tensor = NDimArray::transpose(x->getTensor());
     t->parents.push_back(x);
     t->op = TRANS;
+    x->children.push_back(t);
+    return t;
+}
+
+Tensor* Tensor::ReLU(Tensor* x){
+    Tensor* t = new Tensor();
+    delete x->adjoint;
+    x->adjoint = NULL;
+    t->tensor = NDimArray::ReLU(x->getTensor());
+    t->parents.push_back(x);
+    t->ops = RELU;
+    x->children.push_back(t);
+    return t;
+}
+Tensor* Tensor::Sigmoid(Tensor* x){
+    Tensor* t = new Tensor();
+    delete x->adjoint;
+    x->adjoint = NULL;
+    t->tensor = NDimArray::Sigmoid(x->getTensor());
+    t->parents.push_back(x);
+    t->ops = SIGMOID;
     x->children.push_back(t);
     return t;
 }
@@ -452,6 +529,26 @@ NDimArray* NDimArray::transpose(NDimArray* x){
         }
     }
     return new NDimArray(dims, vals, x->dimension_size);
+}
+
+NDimArray* NDimArray::ReLU(NDimArray* x){
+    float vals[x->values_size];
+    for(int i = 0; i < x->values_size; i++){
+        if(x->values[i] < 0){
+            vals[i] = 0;
+        }
+        else{
+            vals[i] = x->values[i];
+        }
+    }
+    return NDimArray(x->dimension, vals, x->dimension_size);
+}
+NDimArray* NDimArray::Sigmoid(NDimArray* x){
+    float vals[x->values_size];
+    for(int i = 0; i < x->values_size; i++){
+        vals[i] = 1.0/(1.0 + exp(-x->values[i]));
+    }
+    return NDimArray(x->dimension, vals, x->dimension_size);
 }
 
 void NDimArray::setzero(unsigned long* dims, unsigned long dim_sz){
