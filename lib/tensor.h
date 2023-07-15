@@ -66,6 +66,12 @@ public:
     NDimArray* derivative_add(Tensor* x);
     NDimArray* derivative_dot1d1d(Tensor* x);
     NDimArray* derivative_dotNd1d(Tensor* x);
+    NDimArray* derivative_dotNdMd(Tensor* x);
+    NDimArray* derivative_relu(Tensor* x);
+    NDimArray* derivative_sigmoid(Tensor* x);
+    NDimArray* derivative_transpose(Tensor* x);
+    NDimArray* derivative_mult(Tensor* x);
+    NDimArray* derivative_scalarmult(Tensor* x);
     void print();
     Operator getOp();
     bool get_keep();
@@ -76,8 +82,8 @@ public:
 class NN
 {
     public:
-        virtual Tensor* feedforward(Tensor* x);
-}
+        virtual Tensor* feedforward(Tensor* x) = 0;
+};
 class Linear : public NN
 {
 private:
@@ -91,6 +97,6 @@ public:
     Linear(unsigned long in_features, unsigned long out_features);
     Tensor* feedforward(Tensor* x);
     ~Linear();
-}
+};
 
 #endif

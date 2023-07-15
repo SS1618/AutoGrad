@@ -6,13 +6,13 @@ Linear::Linear(unsigned long in_features, unsigned long out_features){
     for(int i = 0; i < in_features * out_features; i++){
         valsW[i] = rand() / float(RAND_MAX);
     }
-    weight = Tensor(dimsW, valsW, 2);
+    weight = new Tensor(dimsW, valsW, 2);
     unsigned long dimsB[1] = {out_features};
     float valsB[out_features];
     for(int i = 0; i < out_features; i++){
         valsB[i] = rand() / float(RAND_MAX);
     }
-    bias = Tensor(dimsB, valsB, 1);
+    bias = new Tensor(dimsB, valsB, 1);
 }
 
 Tensor* Linear::feedforward(Tensor* x){
@@ -158,6 +158,12 @@ NDimArray* Tensor::derivative(Tensor* x, Operator op){
     else if(op == TRANS){
         return derivative_transpose(x);
     }
+    else if(op == RELU){
+        return derivative_relu(x);
+    }
+    else if(op == SIGMOID){
+        return derivative_sigmoid(x);
+    }
     return NULL;
 }
 
@@ -251,7 +257,7 @@ NDimArray* Tensor::derivative_mult(Tensor* x){
     }
     else{
         unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-        jac = new NDimArray();
+        NDimArray* jac = new NDimArray();
         jac->setzero(dims, 2);
 
         for(int i = 0; i < getTensor()->values_size; i++){
@@ -264,7 +270,7 @@ NDimArray* Tensor::derivative_mult(Tensor* x){
 
 NDimArray* Tensor::derivative_transpose(Tensor* x){
     unsigned long dims[2] = {getTensor()->values_size, x->getTensor()->values_size};
-    jac = new NDimArray();
+    NDimArray* jac = new NDimArray();
     jac->setzero(dims, 2);
 
     for(int i = 0; i < getTensor()->values_size; i++){
@@ -273,6 +279,27 @@ NDimArray* Tensor::derivative_transpose(Tensor* x){
         jac->values[(i * x->getTensor()->values_size) + (c * x->getTensor()->dimension[x->getTensor()->dimension_size - 1]) + r] = 1.0;
     }
     return jac;
+}
+
+NDimArray* Tensor::derivative_relu(Tensor* x){
+    float vals[x->getTensor()->values_size];
+    for(int i = 0; i < x->getTensor()->values_size; i++){
+        if(x->getTensor()->values[i] > 0){
+            vals[i] = 1.0f;
+        }
+        else{
+            vals[i] = 0.0f;
+        }
+    }
+    return new NDimArray(x->getTensor()->dimension, vals, x->getTensor()->dimension_size);
+}
+
+NDimArray* Tensor::derivative_sigmoid(Tensor* x){
+    float vals[getTensor()->values_size];
+    for(int i = 0; i < getTensor()->values_size; i++){
+        vals[i] = getTensor()->values[i] * (1.0f - getTensor()->values[i]);
+    }
+    return new NDimArray(x->getTensor()->dimension, vals, x->getTensor()->dimension_size);
 }
 
 Tensor* Tensor::add(Tensor* x, Tensor* y){
@@ -352,7 +379,7 @@ Tensor* Tensor::ReLU(Tensor* x){
     x->adjoint = NULL;
     t->tensor = NDimArray::ReLU(x->getTensor());
     t->parents.push_back(x);
-    t->ops = RELU;
+    t->op = RELU;
     x->children.push_back(t);
     return t;
 }
@@ -362,7 +389,7 @@ Tensor* Tensor::Sigmoid(Tensor* x){
     x->adjoint = NULL;
     t->tensor = NDimArray::Sigmoid(x->getTensor());
     t->parents.push_back(x);
-    t->ops = SIGMOID;
+    t->op = SIGMOID;
     x->children.push_back(t);
     return t;
 }
@@ -446,12 +473,11 @@ NDimArray* NDimArray::dot(NDimArray* x, NDimArray* y){
 
 NDimArray* NDimArray::dot1d1d(NDimArray* x, NDimArray* y){
     assert(x->dimension[0] == y->dimension[0]);
-    unsigned long dims[1] = {1};
-    float vals[1] = {0.0};
+    float val = 0;
     for(int i = 0; i < x->values_size; i++){
-        vals[0] += x->values[i] * y->values[i];
+        val += x->values[i] * y->values[i];
     }
-    return new NDimArray(dims, vals, 1);
+    return new NDimArray(val);
 }
 NDimArray* NDimArray::dotNd1d(NDimArray* x, NDimArray* y){
     assert(y->dimension[0] == x->dimension[x->dimension_size - 1]);
@@ -541,14 +567,14 @@ NDimArray* NDimArray::ReLU(NDimArray* x){
             vals[i] = x->values[i];
         }
     }
-    return NDimArray(x->dimension, vals, x->dimension_size);
+    return new NDimArray(x->dimension, vals, x->dimension_size);
 }
 NDimArray* NDimArray::Sigmoid(NDimArray* x){
     float vals[x->values_size];
     for(int i = 0; i < x->values_size; i++){
         vals[i] = 1.0/(1.0 + exp(-x->values[i]));
     }
-    return NDimArray(x->dimension, vals, x->dimension_size);
+    return new NDimArray(x->dimension, vals, x->dimension_size);
 }
 
 void NDimArray::setzero(unsigned long* dims, unsigned long dim_sz){
