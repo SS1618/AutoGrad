@@ -1,10 +1,7 @@
 #include "iostream"
 #include "tensor.h"
-#include <ctime>
-#include <chrono>
 
 using namespace std;
-using namespace std::chrono;
 
 bool assert_equality(NDimArray* x, NDimArray* y);
 void add_test();

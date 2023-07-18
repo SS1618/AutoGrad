@@ -4,19 +4,26 @@ Linear::Linear(unsigned long in_features, unsigned long out_features){
     unsigned long dimsW[2] = {out_features, in_features};
     float valsW[in_features * out_features];
     for(int i = 0; i < in_features * out_features; i++){
-        valsW[i] = rand() / float(RAND_MAX);
+        valsW[i] = rand() / (1000 * float(RAND_MAX));
     }
     weight = new Tensor(dimsW, valsW, 2);
+    weight->set_name("weights");
     unsigned long dimsB[1] = {out_features};
     float valsB[out_features];
     for(int i = 0; i < out_features; i++){
-        valsB[i] = rand() / float(RAND_MAX);
+        valsB[i] = rand() / (1000 * float(RAND_MAX));
     }
     bias = new Tensor(dimsB, valsB, 1);
+    bias->set_name("bias");
 }
 
 Tensor* Linear::feedforward(Tensor* x){
     return Tensor::add(Tensor::dot(weight, x), bias);
+}
+
+void Linear::update(float step_sz){
+    weight->update(step_sz);
+    bias->update(step_sz);
 }
 
 Linear::~Linear(){
@@ -52,28 +59,13 @@ NDimArray* Tensor::getAdjoint(){
 Operator Tensor::getOp(){
     return op;
 }
-void Tensor::update(double step_sz){
-    for(int i = 0; i < adjoint->values_size; i+=tensor->values_size){
-        #pragma omp parallel for
-        for(int j = 0; j < tensor->values_size; j++){
-            tensor->values[j] -= step_sz * adjoint->values[i + j];
-        }
-    }
-}
-void Tensor::backward(){
-    unsigned var_count = 1;
-    for(int i = 0; i < tensor->dimension_size; i++){
-        var_count *= tensor->dimension[i];
-    }
-    unsigned long dims[2] = {var_count, var_count};
-    adjoint = new NDimArray();
-    adjoint->setidentity(dims, 2);
-
+void Tensor::clearTree(){
     vector<Tensor*> visited_nodes;
     stack<Tensor*> nodes;
     for(int i = 0; i < parents.size(); i++){
         nodes.push(parents[i]);
     }
+    adjoint = new NDimArray();
     while(!nodes.empty()){
         Tensor* n = nodes.top(); //get top node
 
@@ -84,7 +76,6 @@ void Tensor::backward(){
 
         //check if adjoints for children have been computed
         bool comp_adj = true;
-
         for(int i = 0; i < n->children.size(); i++){
             if(n->children[i]->adjoint == NULL){
                 comp_adj = false;
@@ -94,6 +85,77 @@ void Tensor::backward(){
 
         if(comp_adj){
             //compute adjoint
+            n->adjoint = new NDimArray();
+            visited_nodes.push_back(nodes.top());
+            nodes.pop();
+
+            //add parents
+            for(int i = 0; i < n->parents.size(); i++){
+                nodes.push(n->parents[i]);
+            }
+        }
+        else{
+            //add children
+            for(int i = 0; i < n->children.size(); i++){
+                if(n->children[i]->adjoint == NULL){
+                    nodes.push(n->children[i]);
+                }
+            }
+        }
+    }
+    for(int i = 0; i < visited_nodes.size(); i++){
+        if(visited_nodes[i] != NULL){
+            visited_nodes[i]->children.clear();
+            if(!visited_nodes[i]->get_keep()){
+                delete visited_nodes[i];
+                visited_nodes[i] = NULL;
+            }
+        }
+    }
+}
+void Tensor::update(double step_sz){
+    for(int i = 0; i < adjoint->values_size; i+=tensor->values_size){
+        #pragma omp parallel for
+        for(int j = 0; j < tensor->values_size; j++){
+            tensor->values[j] -= step_sz * adjoint->values[i + j];
+        }
+    }
+}
+void Tensor::backward(){
+    
+    unsigned var_count = 1;
+    for(int i = 0; i < tensor->dimension_size; i++){
+        var_count *= tensor->dimension[i];
+    }
+    
+    unsigned long dims[2] = {var_count, var_count};
+    adjoint = new NDimArray();
+    adjoint->setidentity(dims, 2);
+
+    vector<Tensor*> visited_nodes;
+    stack<Tensor*> nodes;
+    for(int i = 0; i < parents.size(); i++){
+        nodes.push(parents[i]);
+    }
+
+    while(!nodes.empty()){
+        Tensor* n = nodes.top(); //get top node
+        if(n->adjoint != NULL){ //skip if adjoint already computed
+            nodes.pop();
+            continue;
+        }
+        //check if adjoints for children have been computed
+        bool comp_adj = true;
+        for(int i = 0; i < n->children.size(); i++){
+            if(n->children[i]->adjoint == NULL){
+                comp_adj = false;
+                break;
+            }
+        }
+
+        if(comp_adj){
+            //compute adjoint
+
             dims[1] = n->getTensor()->values_size;
             //n->adjoint->setzero(dims, 2);
             if(n->children.size() > 0){
@@ -181,7 +243,6 @@ NDimArray* Tensor::derivative_dot1d1d(Tensor* x){
         other = parents[1];
     }
     float vals[other->getTensor()->values_size];
-    //#pragma omp parallel for
     for(int i = 0; i < other->getTensor()->values_size; i++){
         vals[i] = other->getTensor()->values[i];
     }
@@ -282,24 +343,53 @@ NDimArray* Tensor::derivative_transpose(Tensor* x){
 }
 
 NDimArray* Tensor::derivative_relu(Tensor* x){
-    float vals[x->getTensor()->values_size];
-    for(int i = 0; i < x->getTensor()->values_size; i++){
-        if(x->getTensor()->values[i] > 0){
-            vals[i] = 1.0f;
-        }
-        else{
-            vals[i] = 0.0f;
+    assert(getTensor()->values_size == x->getTensor()->values_size);
+    unsigned long dims[2] = {x->getTensor()->values_size, x->getTensor()->values_size};
+    float vals[x->getTensor()->values_size*x->getTensor()->values_size];
+    for(int i = 0; i < getTensor()->values_size*getTensor()->values_size; i+=getTensor()->values_size){
+        for(int j = 0; j < getTensor()->values_size; j++){
+            if(j == i / getTensor()->values_size && x->getTensor()->values[j] > 0){
+                vals[i + j] = 1;
+            }
+            else{
+                vals[i + j] = 0;
+            }
         }
     }
-    return new NDimArray(x->getTensor()->dimension, vals, x->getTensor()->dimension_size);
+    return new NDimArray(dims, vals, 2);
 }
 
 NDimArray* Tensor::derivative_sigmoid(Tensor* x){
-    float vals[getTensor()->values_size];
-    for(int i = 0; i < getTensor()->values_size; i++){
-        vals[i] = getTensor()->values[i] * (1.0f - getTensor()->values[i]);
+    assert(getTensor()->values_size == x->getTensor()->values_size);
+    unsigned long dims[2] = {x->getTensor()->values_size, x->getTensor()->values_size};
+    float vals[x->getTensor()->values_size*x->getTensor()->values_size];
+    for(int i = 0; i < getTensor()->values_size*getTensor()->values_size; i+=getTensor()->values_size){
+        for(int j = 0; j < getTensor()->values_size; j++){
+            if(j == i / getTensor()->values_size){
+                vals[i + j] = getTensor()->values[j] * (1.0f - getTensor()->values[j]);
+            }
+            else{
+                vals[i + j] = 0;
+            }
+        }
     }
-    return new NDimArray(x->getTensor()->dimension, vals, x->getTensor()->dimension_size);
+    return new NDimArray(dims, vals, 2);
+}
+
+Tensor* Tensor::random(unsigned long* dim, unsigned long dim_sz){
+    Tensor* t = new Tensor();
+    t->tensor = NDimArray::random(dim, dim_sz);
+    t->adjoint = NULL;
+    t->keep = true;
+    return t;
+}
+
+Tensor* Tensor::eye(unsigned long dim){
+    Tensor* t = new Tensor();
+    t->tensor = NDimArray::eye(dim);
+    t->adjoint = NULL;
+    t->keep = true;
+    return t;
 }
 
 Tensor* Tensor::add(Tensor* x, Tensor* y){
@@ -312,6 +402,7 @@ Tensor* Tensor::add(Tensor* x, Tensor* y){
     t->parents.push_back(x);
     t->parents.push_back(y);
     t->op = ADD;
+    t->name = "add";
     x->children.push_back(t);
     y->children.push_back(t);
     return t;
@@ -323,6 +414,8 @@ Tensor* Tensor::dot(Tensor* x, Tensor* y){
     delete y->adjoint;
     x->adjoint = NULL;
     y->adjoint = NULL;
+    t->name = "dot";
+
     //t->tensor = NDimArray::dot(x->getTensor(), y->getTensor());
     t->parents.push_back(x);
     t->parents.push_back(y);
@@ -380,6 +473,7 @@ Tensor* Tensor::ReLU(Tensor* x){
     t->tensor = NDimArray::ReLU(x->getTensor());
     t->parents.push_back(x);
     t->op = RELU;
+    t->name = "RELU";
     x->children.push_back(t);
     return t;
 }
@@ -427,6 +521,29 @@ NDimArray::NDimArray(float val){
 NDimArray::~NDimArray(){
     delete[] values;
     delete[] dimension;
+}
+
+NDimArray* NDimArray::random(unsigned long* dim, unsigned long dim_sz){
+    NDimArray* n = new NDimArray();
+    n->dimension = new unsigned long[dim_sz];
+    unsigned long vals_sz = 1;
+    for(int i = 0; i < dim_sz; i++){
+        n->dimension[i] = dim[i];
+        vals_sz *= dim[i];
+    }
+    n->values = new float[vals_sz];
+    for(int i = 0; i < vals_sz; i++){
+        n->values[i] = rand() / float(RAND_MAX);
+    }
+    n->dimension_size = dim_sz;
+    n->values_size = vals_sz;
+    return n;
+}
+NDimArray* NDimArray::eye(unsigned long dim){
+    unsigned long dims[2] = {dim, dim};
+    NDimArray* n = new NDimArray();
+    n->setidentity(dims, 2);
+    return n;
 }
 
 NDimArray* NDimArray::add(NDimArray* x, NDimArray* y){
@@ -488,16 +605,16 @@ NDimArray* NDimArray::dotNd1d(NDimArray* x, NDimArray* y){
     }
     for(int i = 0; i < x->values_size; i+=y->dimension[0]){
         __m256 sum_vec = _mm256_setzero_ps();
-        for(int j = 0; j < (y->dimension[0] / 4) * 4; j+=4){
+        for(int j = 0; j < (y->dimension[0] / 8) * 8; j+=8){
             __m256 a_vec = _mm256_loadu_ps(x->values + i + j);
             __m256 b_vec = _mm256_loadu_ps(y->values + j);
             sum_vec = _mm256_add_ps(_mm256_mul_ps(a_vec, b_vec), sum_vec);
             //sum += (x->values[i + j] * y->values[j]);
         }
-        float store_prods[4];
+        float store_prods[8];
         _mm256_storeu_ps(store_prods, sum_vec);
-        float sum = store_prods[0] + store_prods[1] + store_prods[2] + store_prods[3];
-        for(int j = (y->dimension[0] / 4) * 4; j < y->dimension[0]; j++){
+        float sum = store_prods[0] + store_prods[1] + store_prods[2] + store_prods[3]+ store_prods[4]+ store_prods[5]+ store_prods[6]+ store_prods[7];
+        for(int j = (y->dimension[0] / 8) * 8; j < y->dimension[0]; j++){
             sum += (x->values[i + j] * y->values[j]);
         }
         //vals.push_back(sum);

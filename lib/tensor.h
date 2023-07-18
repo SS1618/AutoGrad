@@ -17,6 +17,8 @@ public:
     NDimArray(){}
     NDimArray(unsigned long* dim, float* vals, unsigned long dim_sz);
     NDimArray(float val);
+    static NDimArray* random(unsigned long* dim, unsigned long dim_sz);
+    static NDimArray* eye(unsigned long dim);
     static NDimArray* add(NDimArray* x, NDimArray* y);
     void add(NDimArray* x);
     static NDimArray* dot(NDimArray* x, NDimArray* y);
@@ -45,17 +47,25 @@ private:
     Operator op;
     bool keep;
 public:
+    string name;
     Tensor(){
         adjoint = NULL;
         tensor = NULL;
         keep = false;
+        name = "None";
     }
     Tensor(unsigned long* dim, float* vals, unsigned long dim_sz);
     Tensor(float val);
+    void set_name(string n){
+        name = n;
+    }
+    void clearTree();
     void backward();
     NDimArray* getTensor();
     NDimArray* getAdjoint();
     void update(double step_sz);
+    static Tensor* random(unsigned long* dim, unsigned long dim_sz);
+    static Tensor* eye(unsigned long dim);
     static Tensor* add(Tensor* x, Tensor* y);
     static Tensor* dot(Tensor* x, Tensor* y);
     static Tensor* mult(Tensor* x, Tensor* y);
@@ -96,6 +106,7 @@ public:
     }
     Linear(unsigned long in_features, unsigned long out_features);
     Tensor* feedforward(Tensor* x);
+    void update(float step_sz);
     ~Linear();
 };
 
