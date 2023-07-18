@@ -8,7 +8,7 @@ This is an auto-differentiation library built from the ground up in C++.
 ## Installation
 The current best way to install Autograd is from the source. Simply clone this repo and differentiate away!
 ## Quick Example
-See in examples/basicexample.cpp
+See in 'examples/basicexample.cpp'
 ```
 #include "iostream"
 #include "tensor.h"
@@ -37,7 +37,7 @@ int main(){
 }
 ```
 ## Neural Networks
-Here is an example of a neural network implemented with our library (see in examples/MNIST/mnist_training.cpp).
+Here is an example of a neural network implemented with our library (see in 'examples/MNIST/mnist_training.cpp').
 ```
 #include "iostream"
 #include "tensor.h"
